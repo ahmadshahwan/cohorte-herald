@@ -26,19 +26,21 @@ Herald transport implementations package
     limitations under the License.
 """
 
+import logging
+
+from pelix.ipopo.decorators import ComponentFactory, Requires, Provides, \
+    Property, Validate, Invalidate, Instantiate
+
+import herald
+from herald.transports.mqtt import ACCESS_ID
+import herald.transports.mqtt.models as models
+
 # Documentation strings format
 __docformat__ = "restructuredtext en"
 
 __author__ = 'Ahmad Shahwan'
 
-import logging
-from pelix.ipopo.decorators import ComponentFactory, Requires, Provides, \
-    Property, Validate, Invalidate, Instantiate
-import herald
-from . import ACCESS_ID
-from . import models
-
-_logger = logging.getLogger(__name__)
+_log = logging.getLogger(__name__)
 
 
 @ComponentFactory('herald-mqtt-directory-factory')
@@ -70,7 +72,7 @@ class Directory(object):
         """
         pass
 
-    def load_access(self, data):
+    def load_access(self, _):
         """
         Loads a dumped MQTT access
 
@@ -108,4 +110,3 @@ class Directory(object):
         :raise ValueError: The access doesn't match the peer
         """
         pass
-

@@ -26,32 +26,31 @@ Herald transport implementations package
     limitations under the License.
 """
 
+# Standard libraries
+import logging
+import time
+
+# Pelix
+from pelix.ipopo.decorators import ComponentFactory, Requires, Provides, \
+    Property, Validate, Invalidate, Instantiate, RequiresBest
+import pelix.utilities
+
+# Herald
+import herald
+import herald.utils as utils
+import herald.transports.mqtt.models as models
+from herald.beans import Message
+from herald.transports.peer_contact import PeerContact, \
+    SUBJECT_DISCOVERY_PREFIX, SUBJECT_DISCOVERY_STEP_1
+from herald.transports.mqtt import ACCESS_ID, PROP_MQTT_HOST, \
+    PROP_MQTT_PASSWORD, PROP_MQTT_PORT, PROP_MQTT_USERNAME
+
 # Documentation strings format
 __docformat__ = "restructuredtext en"
 
 __author__ = 'Ahmad Shahwan'
 
-# Herald MQTT transport
-from . import ACCESS_ID
-from . import models
-
-# Herald
-import herald
-import herald.utils as utils
-from herald.beans import Message, Peer
-from ..peer_contact import PeerContact, SUBJECT_DISCOVERY_PREFIX, SUBJECT_DISCOVERY_STEP_1
-from . import PROP_MQTT_HOST, PROP_MQTT_PASSWORD, PROP_MQTT_PORT,\
-    PROP_MQTT_USERNAME
-
-# Pelix
-from pelix.ipopo.decorators import ComponentFactory, Requires, Provides, \
-    Property, Validate, Invalidate, Instantiate, RequiresBest
-
-# Standard libraries
-import time
-
 # Logging
-import logging
 _log = logging.getLogger(__name__)
 
 DEFAULT_MQTT_HOST = 'localhost'
@@ -77,21 +76,29 @@ class MqttTransport(object):
         """
         Sets up the transport component.
         """
-        # Herald Core directory
+        # Properties
+        # Herald core directory
         self._directory = None
-
+        # Herald core service
+        self._herald = None
         # Debug probe
         self._probe = None
-
-        # Properties
+        # Access ID
         self._access_id = ACCESS_ID
+        # Host name
+        self._host = None
+        # Port number
+        self._port = None
+        # Username
+        self._username = None
+        # Password
+        self._password = None
 
         # Local peer
         self.__peer = None
-
         # MQTT messenger
         self.__messenger = None
-
+        # Peer contact
         self.__contact = None
 
     def __get_content(self,
@@ -110,7 +117,7 @@ class MqttTransport(object):
         """
         # Convert content to JSON
         if message.subject in herald.SUBJECTS_RAW:
-            return utils.to_str(message.content)
+            return pelix.utilities.to_str(message.content)
         # Update headers
         message.add_header(herald.MESSAGE_HEADER_SENDER_UID,
                            self.__peer.uid)
@@ -130,13 +137,21 @@ class MqttTransport(object):
         Callback when message is received
         :param content: Message content, in JSON format as it was sent
         """
-        message = utils.from_json(content.payload.decode('utf-8'))
+        message = utils.from_json(content)
         # :type message: herald.beans.MessageReceived
         sender_uid = message.get_header(herald.MESSAGE_HEADER_SENDER_UID)
+        # Ignore loop-backs
+        if sender_uid == self.__peer.uid:
+            return
         reply_to = message.get_header(herald.MESSAGE_HEADER_REPLIES_TO)
         subject = message.subject
 
-        message.set_extra(sender_uid)
+        extra = {
+            "sender_uid": sender_uid,
+            "parent_uid": message.uid
+        }
+
+        message.set_extra(extra)
         message.set_access(ACCESS_ID)
 
         # Log before giving message to Herald
@@ -183,7 +198,7 @@ class MqttTransport(object):
             None,
             __name__ + ".contact")
         if self._username is not None:
-            self.__messenger.set_credentials(self._user, self._password)
+            self.__messenger.login(self._username, self._password)
         self.__messenger.connect(self._host, self._port)
 
     @Invalidate
@@ -206,11 +221,13 @@ class MqttTransport(object):
         :raise InvalidPeerAccess: No information found to access the peer
         :type peer: herald.beans.Peer
         """
-        peer_uid = extra if extra else peer.uid
-        _log.debug("Firing message to peer %s." % peer_uid)
+        peer_uid = peer.uid if peer else extra.get("sender_uid")
+        parent_uid = extra.get("parent_uid") if extra else None
+
+        _log.debug("Firing message to peer %s.", peer_uid)
         content = self.__get_content(message,
                                      target_uid=peer_uid,
-                                     parent_uid=extra)
+                                     parent_uid=parent_uid)
         # Log before sending
         self._probe.store(herald.PROBE_CHANNEL_MSG_SEND, {
             "uid": message.uid,
@@ -237,7 +254,7 @@ class MqttTransport(object):
         :return: The list of reached peers
 
         """
-        _log.debug("Firing message to group %s." % group)
+        _log.debug("Firing message to group %s.", group)
         # Prepare the message
         content = self.__get_content(message, target_group=group)
 

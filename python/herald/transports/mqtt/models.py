@@ -26,21 +26,18 @@ Herald transport implementations package
     limitations under the License.
 """
 
-# Documentation strings format
-__docformat__ = "restructuredtext en"
-
-__author__ = 'Ahmad Shahwan'
-
-# Herald MQTT Transport
-from . import ACCESS_ID, TOPIC_PREFIX
-
-# Pelix
-#from pelix.misc.mqtt_client import MqttClient
+import logging
 
 # Paho MQTT client
 from paho.mqtt.client import Client as MqttClient
 
-import logging
+# Herald MQTT Transport
+from herald.transports.mqtt import ACCESS_ID, TOPIC_PREFIX
+
+# Documentation strings format
+__docformat__ = "restructuredtext en"
+
+__author__ = 'Ahmad Shahwan'
 
 UID_TOPIC = 'uid'
 """
@@ -69,7 +66,7 @@ class Access(object):
         return hash(None)
 
     def __eq__(self, other):
-        return False
+        return isinstance(other, Access)
 
     def __lt__(self, other):
         return False
@@ -79,9 +76,13 @@ class Access(object):
 
     @property
     def access_id(self):
+        """
+        Access ID
+        """
         return ACCESS_ID
 
-    def dump(self):
+    @staticmethod
+    def dump():
         """
         Returns the content to store in a directory dump to describe this
         access
@@ -114,8 +115,8 @@ class Messenger(object):
         :return: Fully qualified topic
         :rtype : str
         """
-        return TOPIC_PREFIX + '\\' + self.__peer.app_id + '\\'\
-            + UID_TOPIC + '\\' + subtopic
+        return "{0}/{1}/{2}/{3}".format(TOPIC_PREFIX, self.__peer.app_id,
+                                        UID_TOPIC, subtopic)
 
     def __make_group_topic(self, subtopic):
         """
@@ -124,17 +125,23 @@ class Messenger(object):
         :return: Fully qualified topic
         :rtype : str
         """
-        return TOPIC_PREFIX + '\\' + self.__peer.app_id + '\\'\
-            + GROUP_TOPIC + '\\' + subtopic
+        return "{0}/{1}/{2}/{3}".format(TOPIC_PREFIX, self.__peer.app_id,
+                                        GROUP_TOPIC, subtopic)
 
     def _on_connect(self, *args, **kwargs):
+        """
+        Handles a connection-established event.
+        :param args: unnamed arguments
+        :param kwargs: named arguments
+        :return:
+        """
         _log.info("Connection established.")
-        _log.debug("Subscribing for topic %s." %
-                       self.__make_uid_topic(self.__peer.uid))
+        _log.debug("Subscribing for topic %s.",
+                   self.__make_uid_topic(self.__peer.uid))
         self.__mqtt.subscribe(self.__make_uid_topic(self.__peer.uid))
         self.__mqtt.subscribe(self.__make_group_topic("all"))
         for group in self.__peer.groups:
-            _log.debug("Subscribing for topic %s." %
+            _log.debug("Subscribing for topic %s.",
                        self.__make_group_topic(group))
             self.__mqtt.subscribe(self.__make_group_topic(group))
         if self.__callback_handler and self.__callback_handler.on_connected:
@@ -143,14 +150,28 @@ class Messenger(object):
             _log.warning("Missing callback for on_connect.")
 
     def _on_disconnect(self, *args, **kwargs):
+        """
+        Handles a connection-lost event.
+        :param args: unnamed arguments
+        :param kwargs: named arguments
+        :return:
+        """
         _log.info("Connection lost.")
         if self.__callback_handler and self.__callback_handler.on_disconnected:
             self.__callback_handler.on_disconnected()
 
     def _on_message(self, client, data, message):
+        """
+        Handles an incoming message.
+        :param client: the client instance for this callback
+        :param data: the private user data
+        :param message: an instance of MQTTMessage
+        :type message: paho.mqtt.client.MQTTMessage
+        :return:
+        """
         _log.info("Message received.")
         if self.__callback_handler and self.__callback_handler.on_message:
-            self.__callback_handler.on_message(message)
+            self.__callback_handler.on_message(message.payload.decode('utf-8'))
         else:
             _log.warning("Missing callback for on_message.")
 
@@ -188,15 +209,31 @@ class Messenger(object):
         """
         self.__callback_handler = listener
 
+    def login(self, username, password):
+        """
+        Set credentials for an MQTT broker.
+        :param username: Username
+        :param password: Password
+        :return:
+        """
+        self.__mqtt.username_pw_set(username, password)
+
     def connect(self, host, port):
-        _log.info("Connecting to MQTT server %s:%s ..." % (host, port))
+        """
+        Connects to an MQTT broker.
+        :param host: broker's host name
+        :param port: broker's port number
+        :return:
+        """
+        _log.info("Connecting to MQTT broker at %s:%s ...", host, port)
         self.__mqtt.connect(host, port)
         self.__mqtt.loop_start()
 
     def disconnect(self):
-        _log.info("Disconnecting from MQTT server...")
+        """
+        Diconnects from an MQTT broker.
+        :return:
+        """
+        _log.info("Disconnecting from MQTT broker...")
         self.__mqtt.loop_stop()
         self.__mqtt.disconnect()
-
-
-
