@@ -199,6 +199,14 @@ class MqttTransport(object):
     def on_disconnected(self, *args, **kwargs):
         pass
 
+    def on_peer_down(self, message):
+        try:
+            peer = self._directory.get_peer(message)
+            peer.unset_access(ACCESS_ID)
+        except KeyError:
+            # Unknown peer (yet)
+            pass
+
     @Validate
     def _validate(self, _):
         """

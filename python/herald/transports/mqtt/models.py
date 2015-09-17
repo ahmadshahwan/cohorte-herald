@@ -32,12 +32,17 @@ import logging
 from paho.mqtt.client import Client as MqttClient
 
 # Herald MQTT Transport
-from herald.transports.mqtt import ACCESS_ID, TOPIC_PREFIX
+from herald.transports.mqtt import ACCESS_ID
 
 # Documentation strings format
 __docformat__ = "restructuredtext en"
 
 __author__ = 'Ahmad Shahwan'
+
+TOPIC_PREFIX = 'cohorte/herald'
+""" 
+MQTT topics' prefix 
+"""
 
 UID_TOPIC = 'uid'
 """
@@ -47,6 +52,11 @@ UID subtopic
 GROUP_TOPIC = 'group'
 """
 Group subtopic
+"""
+
+RIP_TOPIC = 'rip'
+"""
+ Last will topic 
 """
 
 _log = logging.getLogger(__name__)
@@ -107,6 +117,8 @@ class Messenger(object):
         self.__mqtt.on_disconnect = self._on_disconnect
         self.__mqtt.on_message = self._on_message
         self.__callback_handler = None
+        self.__WILL_TOPIC = "/".join(
+            (TOPIC_PREFIX, peer.app_id, RIP_TOPIC))
 
     def __make_uid_topic(self, subtopic):
         """
@@ -115,8 +127,8 @@ class Messenger(object):
         :return: Fully qualified topic
         :rtype : str
         """
-        return "{0}/{1}/{2}/{3}".format(TOPIC_PREFIX, self.__peer.app_id,
-                                        UID_TOPIC, subtopic)
+        return "/".join(
+            (TOPIC_PREFIX, self.__peer.app_id, UID_TOPIC, subtopic))
 
     def __make_group_topic(self, subtopic):
         """
@@ -125,8 +137,15 @@ class Messenger(object):
         :return: Fully qualified topic
         :rtype : str
         """
-        return "{0}/{1}/{2}/{3}".format(TOPIC_PREFIX, self.__peer.app_id,
-                                        GROUP_TOPIC, subtopic)
+        return "/".join(
+            (TOPIC_PREFIX, self.__peer.app_id, GROUP_TOPIC, subtopic))
+
+    def __handle_will(self, message):
+        if self.__callback_handler and self.__callback_handler.on_peer_down:
+            self.__callback_handler.on_peer_down(
+                message.payload.decode('utf-8'))
+        else:
+            _log.debug("Missing callback for on_peer_down.")
 
     def _on_connect(self, *args, **kwargs):
         """
@@ -140,6 +159,7 @@ class Messenger(object):
                    self.__make_uid_topic(self.__peer.uid))
         self.__mqtt.subscribe(self.__make_uid_topic(self.__peer.uid))
         self.__mqtt.subscribe(self.__make_group_topic("all"))
+        self.__mqtt.subscribe(self.__WILL_TOPIC)
         for group in self.__peer.groups:
             _log.debug("Subscribing for topic %s.",
                        self.__make_group_topic(group))
@@ -170,6 +190,9 @@ class Messenger(object):
         :return:
         """
         _log.info("Message received.")
+        if message.topic == self.__WILL_TOPIC:
+            self.__handle_will(message)
+            return
         if self.__callback_handler and self.__callback_handler.on_message:
             self.__callback_handler.on_message(message.payload.decode('utf-8'))
         else:
@@ -226,6 +249,7 @@ class Messenger(object):
         :return:
         """
         _log.info("Connecting to MQTT broker at %s:%s ...", host, port)
+        self.__mqtt.will_set(self.__WILL_TOPIC, self.__peer.uid, 1)
         self.__mqtt.connect(host, port)
         self.__mqtt.loop_start()
 
@@ -235,5 +259,6 @@ class Messenger(object):
         :return:
         """
         _log.info("Disconnecting from MQTT broker...")
+        self.__mqtt.publish(self.__WILL_TOPIC, self.__peer.uid, 1)
         self.__mqtt.loop_stop()
         self.__mqtt.disconnect()

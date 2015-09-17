@@ -36,11 +36,6 @@ ACCESS_ID = 'mqtt'
 Access ID used by the MQTT transport implementation.
 """
 
-TOPIC_PREFIX = 'cohorte/herald'
-"""
-MQTT topics' prefix
-"""
-
 PROP_MQTT_HOST = 'mqtt.host'
 """
 MQTT host property
