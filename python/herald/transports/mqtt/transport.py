@@ -29,6 +29,7 @@ Herald transport implementations package
 # Standard libraries
 import logging
 import time
+from threading import Thread
 
 # Pelix
 from pelix.ipopo.decorators import ComponentFactory, Requires, Provides, \
@@ -132,6 +133,14 @@ class MqttTransport(object):
                                parent_uid)
         return utils.to_json(message)
 
+    def __connect(self):
+        """
+        Connects to MQTT broker using messenger.
+        This method should be called in a separate thread.
+        :return:
+        """
+        self.__messenger.connect(self._host, self._port)
+
     def on_message(self, content):
         """
         Callback when message is received
@@ -206,7 +215,7 @@ class MqttTransport(object):
             __name__ + ".contact")
         if self._username is not None:
             self.__messenger.login(self._username, self._password)
-        self.__messenger.connect(self._host, self._port)
+        Thread(target=self.__connect, args=[]).start()
 
     @Invalidate
     def _invalidate(self, _):
