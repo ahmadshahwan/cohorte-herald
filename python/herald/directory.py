@@ -529,6 +529,7 @@ class HeraldDirectory(object):
             if not peer_update:
                 # Store the peer after accesses have been set
                 # (avoids to notify about update before registration)
+                _logger.debug("Adding new peer %s", peer.uid)
                 self._peers[uid] = peer
 
                 # Store the peer
@@ -537,6 +538,7 @@ class HeraldDirectory(object):
                 # Set up groups
                 new_groups = set()
                 for group in peer.groups:
+                    _logger.debug("\tAdding peer's group %s", group)
                     try:
                         # Get the group
                         peers = self._groups[group]

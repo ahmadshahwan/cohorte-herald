@@ -261,8 +261,14 @@ class HeraldDiscovery(object):
             bins.setdefault(target_group, []).append(ep)
         # Send an add message per target group
         for target_group, eps in bins.items():
-            self.__send_message('add', self._dump_endpoints(eps),
-                                target_group)
+            try:
+                self.__send_message('add', self._dump_endpoints(eps),
+                                    target_group)
+            except KeyError:
+                _logger.debug(
+                    "Group %s does't exist. Peers may not be registered yet.",
+                    target_group
+                )
 
     def endpoint_updated(self, endpoint, _):
         """

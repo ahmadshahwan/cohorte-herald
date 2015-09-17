@@ -168,8 +168,15 @@ class MqttTransport(object):
             # Handle discovery message
             self.__contact.herald_message(self._herald, message)
         else:
-            # All other messages are given to Herald Core
-            self._herald.handle_message(message)
+            try:
+                # Is peer familiar?
+                self._directory.get_peer(sender_uid)
+            except KeyError:
+                # Case when message by peer was sent to a group
+                pass
+            else:
+                # All other messages are given to Herald Core
+                self._herald.handle_message(message)
 
     def on_connected(self, *args, **kwargs):
         """
