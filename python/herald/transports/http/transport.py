@@ -172,7 +172,8 @@ class HttpTransport(object):
 
         return 'http://{0}:{1}/{2}'.format(host, port, path)
 
-    def __prepare_message(self, message, parent_uid=None, target_peer=None, target_group=None):
+    def __prepare_message(self, message, parent_uid=None, target_peer=None,
+                          target_group=None):
         """
         Prepares a HTTP request.
 
@@ -192,17 +193,21 @@ class HttpTransport(object):
         """
         headers = {'content-type': CONTENT_TYPE_JSON} 
         message.add_header(herald.MESSAGE_HEADER_SENDER_UID, self.__peer_uid)
-        message.add_header(herald.transports.http.MESSAGE_HEADER_PORT, self.__access_port)
-        message.add_header(herald.transports.http.MESSAGE_HEADER_PATH, self.__access_path)
+        message.add_header(
+            herald.transports.http.MESSAGE_HEADER_PORT, self.__access_port)
+        message.add_header(
+            herald.transports.http.MESSAGE_HEADER_PATH, self.__access_path)
         if parent_uid:
             #headers['herald-reply-to'] = parent_uid
             message.add_header(herald.MESSAGE_HEADER_REPLIES_TO, parent_uid)
         # update target peer header
         if target_peer is not None:
-            message.add_header(herald.MESSAGE_HEADER_TARGET_PEER, target_peer.uid) 
+            message.add_header(
+                herald.MESSAGE_HEADER_TARGET_PEER, target_peer.uid)
         # update target peer header
         if target_group is not None:
-            message.add_header(herald.MESSAGE_HEADER_TARGET_GROUP, target_group)     
+            message.add_header(
+                herald.MESSAGE_HEADER_TARGET_GROUP, target_group)
         if message.subject in herald.SUBJECTS_RAW:
             content = utils.to_str(message.content)
         else:
@@ -250,7 +255,8 @@ class HttpTransport(object):
                                     "No '{0}' access found"
                                     .format(self._access_id))           
         # Send the HTTP request (blocking) and raise an error if necessary
-        headers, content = self.__prepare_message(message, parent_uid, target_peer=peer)
+        headers, content = self.__prepare_message(message, parent_uid,
+                                                  target_peer=peer)
 
         # Log before sending
         self._probe.store(
