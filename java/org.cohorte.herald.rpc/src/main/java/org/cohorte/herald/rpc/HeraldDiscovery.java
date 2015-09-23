@@ -200,15 +200,18 @@ public class HeraldDiscovery implements IMessageListener, IDirectoryListener, IE
 	 *         one of the peer's, or "all"
 	 */
 	private ExportEndpoint[] filterEndpoints(final Peer aPeer, final ExportEndpoint[] aEndpoints) {
+		pLogger.log(LogService.LOG_DEBUG, "Filtering " + aEndpoints.length + " endpoints,");
+		pLogger.log(LogService.LOG_DEBUG, "\tfor peer: " + aPeer);
 		final Collection<String> groups = aPeer.getGroups();
 		final List<ExportEndpoint> valid = new ArrayList<ExportEndpoint>();
 		for (final ExportEndpoint ep : aEndpoints) {
 			final String target_group = getTargetGroup(ep);
-			if (target_group == null || groups.contains(target_group)) {
+			if (target_group.equals(DEFAULT_TARGET_GROUP) || groups.contains(target_group)) {
 				valid.add(ep);
 			}
 		}
 
+		pLogger.log(LogService.LOG_DEBUG, "Endpoints survived: " + valid.size());
 		return valid.toArray(new ExportEndpoint[0]);
 	}
 
@@ -239,6 +242,7 @@ public class HeraldDiscovery implements IMessageListener, IDirectoryListener, IE
 		final int kindIndex = subject.lastIndexOf("/");
 		final String kind = subject.substring(kindIndex + 1);
 
+
 		try {
 			switch (kind) {
 			case "contact": {
@@ -252,11 +256,15 @@ public class HeraldDiscovery implements IMessageListener, IDirectoryListener, IE
 
 				// In case of contact: reply with our dump
 				final List<Map<String, Object>> dump = dumpEndpoints(endpoints);
+				pLogger.log(LogService.LOG_DEBUG, "Sending add in reply to:");
+				pLogger.log(LogService.LOG_DEBUG, "\t" + aMessage.getSender());
+				pLogger.log(LogService.LOG_DEBUG, "\t" + aMessage.getExtra());
 				aHerald.reply(aMessage, dump, SUBJECT_PREFIX + "/add");
 				break;
 			}
 
 			case "add": {
+				pLogger.log(LogService.LOG_DEBUG, "Add received from " + aMessage.getSender());
 				try {
 					// Check if the sender is known
 					pDirectory.getPeer(aMessage.getSender());
@@ -366,6 +374,7 @@ public class HeraldDiscovery implements IMessageListener, IDirectoryListener, IE
 	 *            A list of maps describing endpoints
 	 */
 	private void registerEndpoints(final List<Map<String, Object>> aEndpoints) {
+		pLogger.log(LogService.LOG_DEBUG, "Enrolling " + aEndpoints.size() + " endpoints.");
 
 		for (final Map<String, Object> endpointDict : aEndpoints) {
 			final ImportEndpoint endpoint = loadEndpoint(endpointDict);
@@ -403,6 +412,8 @@ public class HeraldDiscovery implements IMessageListener, IDirectoryListener, IE
 	 *            Group's name
 	 */
 	private void sendMessage(final String aKind, final Object aData, final String aGroup) {
+		pLogger.log(LogService.LOG_DEBUG, "Broadcasting " + aData.toString());
+		pLogger.log(LogService.LOG_DEBUG, "\tto group " + aGroup);
 
 		try {
 			pHerald.fireGroup(aGroup, new Message(SUBJECT_PREFIX + "/" + aKind, aData));

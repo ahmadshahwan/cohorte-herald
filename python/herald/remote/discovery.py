@@ -172,6 +172,7 @@ class HeraldDiscovery(object):
         # Select relevant endpoints
         accepted_groups = set(peer.groups)
         accepted_groups.add(None)
+        accepted_groups.add(DEFAULT_TARGET_GROUP)
         return (endpoint for endpoint in endpoints
                 if endpoint.get_properties().get(PROP_TARGET_GROUP)
                 in accepted_groups)
