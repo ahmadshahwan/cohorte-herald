@@ -332,6 +332,7 @@ public class MulticastHeartbeat implements IPacketListener {
 			@Override
 			public void run() {
 				try {
+					pLogger.log(LogService.LOG_DEBUG, "Sending heartbeat ♥ ♥ ♥");
 					pMulticast.send(beat);
 
 				} catch (final IOException ex) {
@@ -387,7 +388,7 @@ public class MulticastHeartbeat implements IPacketListener {
 
 			@Override
 			public void run() {
-
+				pLogger.log(LogService.LOG_DEBUG, "Sensing heartbeat . . .");
 				synchronized (pPeerLST) {
 					final long loopStart = System.currentTimeMillis();
 
