@@ -28,6 +28,9 @@ import java.util.HashMap;
 import java.util.LinkedHashSet;
 import java.util.Map;
 import java.util.Map.Entry;
+import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.TimeUnit;
 
 import org.apache.felix.ipojo.annotations.Component;
 import org.apache.felix.ipojo.annotations.Invalidate;
@@ -46,7 +49,6 @@ import org.cohorte.herald.http.HTTPExtra;
 import org.cohorte.herald.http.IHttpConstants;
 import org.cohorte.herald.http.impl.IHttpReceiver;
 import org.cohorte.herald.transport.IDiscoveryConstants;
-import org.cohorte.herald.utils.Event;
 import org.cohorte.remote.multicast.utils.IPacketListener;
 import org.cohorte.remote.multicast.utils.MulticastHandler;
 import org.osgi.service.log.LogService;
@@ -65,15 +67,18 @@ public class MulticastHeartbeat implements IPacketListener {
 	/** UDP Packet: Last beat of a peer */
 	private static final byte PACKET_TYPE_LASTBEAT = 2;
 
-	/** Maximum time without peer notification : 30 seconds */
-	private static final long PEER_TTL = 30000;
-
 	/** The Herald directory */
 	@Requires
 	private IDirectory pDirectory;
 
-	/** The heart beat thread */
-	private Thread pHeartThread;
+	// private final Timer pHeartEvent = new Timer();
+
+	/** The interval between each heart beats */
+	@Property(name = "heartbeat.interval", value = "5000")
+	private long pHeartbeatInterval;
+
+	// /** The heart beat thread */
+	// private Thread pHeartThread;
 
 	/** The HTTP transport implementation */
 	@Requires(filter = "(" + IConstants.PROP_ACCESS_ID + "=" + IHttpConstants.ACCESS_ID + ")")
@@ -101,15 +106,16 @@ public class MulticastHeartbeat implements IPacketListener {
 	/** Peer UID -&gt; Last seen time (LST) */
 	private final Map<String, Long> pPeerLST = new HashMap<String, Long>();
 
+	/** The time to live of each peer (maximum time between heart beats) */
+	@Property(name = "peer.ttl", value = "30000")
+	private long pPeerTTL;
+
 	/** The HTTP reception part */
 	@Requires
 	private IHttpReceiver pReceiver;
 
-	/** The loop-stop event */
-	private final Event pStopEvent = new Event();
-
-	/** The TTL thread */
-	private Thread pTTLThread;
+	/** Thread pool to schedule heartbeats and TTL polling */
+	private ScheduledExecutorService pScheduler;
 
 	/**
 	 * Grab the description of a peer using the Herald servlet
@@ -226,7 +232,7 @@ public class MulticastHeartbeat implements IPacketListener {
 			// Update the peer LST
 			previousLST = pPeerLST.put(aPeerUid, System.currentTimeMillis());
 		}
-		
+
 		if (previousLST == null) {
 			// Peer wasn't known
 			discoverPeer(aHostAddress, aPort, aPath);
@@ -311,7 +317,7 @@ public class MulticastHeartbeat implements IPacketListener {
 	private void heartLoop() {
 
 		// Prepare the packet
-		byte[] beat;
+		final byte[] beat;
 		try {
 			beat = makeHeartbeat();
 
@@ -321,14 +327,18 @@ public class MulticastHeartbeat implements IPacketListener {
 			return;
 		}
 
-		do {
-			try {
-				pMulticast.send(beat);
+		pScheduler.scheduleAtFixedRate(new Runnable() {
 
-			} catch (final IOException ex) {
-				pLogger.log(LogService.LOG_ERROR, "Error sending heart beat: " + ex, ex);
+			@Override
+			public void run() {
+				try {
+					pMulticast.send(beat);
+
+				} catch (final IOException ex) {
+					pLogger.log(LogService.LOG_ERROR, "Error sending heart beat: " + ex, ex);
+				}
 			}
-		} while (!pStopEvent.waitEvent(20000L));
+		}, 0, pHeartbeatInterval, TimeUnit.MILLISECONDS);
 	}
 
 	/**
@@ -337,16 +347,7 @@ public class MulticastHeartbeat implements IPacketListener {
 	@Invalidate
 	public void invalidate() {
 
-		// Stop threads
-		pStopEvent.set();
-
-		// Wait a second for threads to stop
-		try {
-			pHeartThread.join(1000);
-			pTTLThread.join(1000);
-		} catch (final InterruptedException e) {
-			// Join interrupted
-		}
+		pScheduler.shutdown();
 
 		// Stop the multicast listener
 		if (pMulticast != null) {
@@ -371,8 +372,7 @@ public class MulticastHeartbeat implements IPacketListener {
 		pPeerLST.clear();
 		pLocalPeer = null;
 		pMulticast = null;
-		pHeartThread = null;
-		pTTLThread = null;
+		pScheduler = null;
 	}
 
 	/**
@@ -380,40 +380,43 @@ public class MulticastHeartbeat implements IPacketListener {
 	 * long to respond
 	 */
 	private void lstLoop() {
-
 		// Instantiate the collection only once
 		final Collection<String> toDelete = new LinkedHashSet<>();
 
-		do {
-			synchronized (pPeerLST) {
-				final long loopStart = System.currentTimeMillis();
+		pScheduler.scheduleAtFixedRate(new Runnable() {
 
-				for (final Entry<String, Long> entry : pPeerLST.entrySet()) {
-					final String peerUid = entry.getKey();
-					final Long lastSeen = entry.getValue();
+			@Override
+			public void run() {
 
-					if (lastSeen == null) {
-						// No LST for this peer, ignore it
-						pLogger.log(LogService.LOG_WARNING, "Invalid LST for " + peerUid);
+				synchronized (pPeerLST) {
+					final long loopStart = System.currentTimeMillis();
 
-					} else if (loopStart - lastSeen > PEER_TTL) {
-						// TTL reached
-						toDelete.add(peerUid);
-						pLogger.log(LogService.LOG_DEBUG, "Peer " + peerUid + " reached TTL.");
+					for (final Entry<String, Long> entry : pPeerLST.entrySet()) {
+						final String peerUid = entry.getKey();
+						final Long lastSeen = entry.getValue();
+
+						if (lastSeen == null) {
+							// No LST for this peer, ignore it
+							pLogger.log(LogService.LOG_WARNING, "Invalid LST for " + peerUid);
+
+						} else if (loopStart - lastSeen > pPeerTTL) {
+							// TTL reached
+							toDelete.add(peerUid);
+							pLogger.log(LogService.LOG_DEBUG, "Peer " + peerUid + " reached TTL.");
+						}
+					}
+
+					for (final String peerUid : toDelete) {
+						// Unregister those peers
+						pPeerLST.remove(peerUid);
+						pDirectory.unregister(peerUid);
 					}
 				}
 
-				for (final String peerUid : toDelete) {
-					// Unregister those peers
-					pPeerLST.remove(peerUid);
-					pDirectory.unregister(peerUid);
-				}
+				// Clean up and wait for next loop
+				toDelete.clear();
 			}
-
-			// Clean up and wait for next loop
-			toDelete.clear();
-
-		} while (!pStopEvent.waitEvent(1000L));
+		}, 0, 1000, TimeUnit.MILLISECONDS);
 	}
 
 	/**
@@ -436,7 +439,6 @@ public class MulticastHeartbeat implements IPacketListener {
 	 *             UTF-8 charset is not support
 	 */
 	private byte[] makeHeartbeat() throws UnsupportedEncodingException {
-
 		// Get local information
 		final HTTPAccess access = pReceiver.getAccessInfo();
 		final String localUid = pLocalPeer.getUid();
@@ -526,9 +528,6 @@ public class MulticastHeartbeat implements IPacketListener {
 	@Validate
 	public void validate() {
 
-		// Reset the stop event
-		pStopEvent.clear();
-
 		// Get the local peer
 		pLocalPeer = pDirectory.getLocalPeer();
 
@@ -553,26 +552,9 @@ public class MulticastHeartbeat implements IPacketListener {
 			return;
 		}
 
-		// Start threads
-		pTTLThread = new Thread(new Runnable() {
+		pScheduler = Executors.newScheduledThreadPool(2);
 
-			@Override
-			public void run() {
-
-				lstLoop();
-			}
-		}, "Herald-HTTP-LST");
-
-		pHeartThread = new Thread(new Runnable() {
-
-			@Override
-			public void run() {
-
-				heartLoop();
-			}
-		}, "Herald-HTTP-HeartBeat");
-
-		pHeartThread.start();
-		pTTLThread.start();
+		lstLoop();
+		heartLoop();
 	}
 }
